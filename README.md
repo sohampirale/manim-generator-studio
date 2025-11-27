@@ -2,6 +2,43 @@
 
 A modern web application for generating and rendering Manim animations using AI.
 
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Client
+        UI["Frontend (Next.js)"]
+    end
+
+    subgraph Server
+        API["Backend API (FastAPI)"]
+        Gen["Generator Service"]
+        Render["Manim Renderer"]
+        Ingest["Ingestion Service"]
+    end
+
+    subgraph External Services
+        Gemini["Google Gemini AI"]
+        Pinecone["Pinecone Vector DB"]
+        Supabase["Supabase DB"]
+    end
+
+    UI -->|Generate Request| API
+    UI -->|Poll Status| API
+    
+    API -->|Job Created| Supabase
+    API -->|Process Job| Gen
+    
+    Gen -->|Retrieve Context| Pinecone
+    Gen -->|Generate Code| Gemini
+    Gen -->|Code| Render
+    
+    Render -->|Render Video| Storage["Video Storage"]
+    Render -->|Update Status| Supabase
+    
+    Ingest -->|Embed Docs| Pinecone
+```
+
 ## Quick Start (Docker)
 
 The fastest way to run the full stack:
@@ -40,43 +77,6 @@ pnpm dev
 - **Real-time Rendering:** Instant feedback loop.
 - **RAG Search:** Context-aware documentation search.
 - **Job History:** Track and manage generation jobs.
-
-## Architecture
-
-```mermaid
-graph TD
-    subgraph Client
-        UI[Frontend (Next.js)]
-    end
-
-    subgraph Server
-        API[Backend API (FastAPI)]
-        Gen[Generator Service]
-        Render[Manim Renderer]
-        Ingest[Ingestion Service]
-    end
-
-    subgraph External Services
-        Gemini[Google Gemini AI]
-        Pinecone[Pinecone Vector DB]
-        Supabase[Supabase DB]
-    end
-
-    UI -->|Generate Request| API
-    UI -->|Poll Status| API
-    
-    API -->|Job Created| Supabase
-    API -->|Process Job| Gen
-    
-    Gen -->|Retrieve Context| Pinecone
-    Gen -->|Generate Code| Gemini
-    Gen -->|Code| Render
-    
-    Render -->|Render Video| Storage[Video Storage]
-    Render -->|Update Status| Supabase
-    
-    Ingest -->|Embed Docs| Pinecone
-```
 
 ## Tech Stack
 - **Backend:** FastAPI, Manim, LangChain, Pinecone, Supabase
