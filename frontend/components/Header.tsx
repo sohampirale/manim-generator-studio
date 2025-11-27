@@ -4,69 +4,75 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "@/components/ModeToggle";
-import { Home, History, Code2, Github, GithubIcon } from "lucide-react";
+import { Home, History, Code2, GithubIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="border-b">
-      <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center space-x-2">
-          <div className="flex items-center space-x-2">
-            <Code2 className="h-6 w-6 text-primary" />
-            <span className="font-bold text-xl">Manim Generator</span>
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+        <Link href="/" className="flex items-center space-x-2 group">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+            <Code2 className="h-5 w-5 text-primary" />
           </div>
+          <span className="font-bold text-lg tracking-tight">Manim Generator</span>
         </Link>
 
-        <nav className="hidden md:flex items-center space-x-6">
+        <nav className="hidden md:flex items-center gap-1">
           <Link
             href="/"
-            className={`text-sm font-medium transition-colors ${
+            className={cn(
+              "px-4 py-2 rounded-full text-sm font-medium transition-all duration-200",
               pathname === "/"
-                ? "text-primary"
-                : "text-muted-foreground hover:text-primary"
-            }`}
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
           >
             Home
           </Link>
           <Link
             href="/history"
-            className={`text-sm font-medium transition-colors ${
+            className={cn(
+              "px-4 py-2 rounded-full text-sm font-medium transition-all duration-200",
               pathname === "/history"
-                ? "text-primary"
-                : "text-muted-foreground hover:text-primary"
-            }`}
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
           >
             History
           </Link>
         </nav>
 
-        <div className="flex items-center space-x-4">
-          <div className="md:hidden flex space-x-2">
-            <Button variant="ghost" size="icon" asChild>
+        <div className="flex items-center space-x-2">
+          <div className="md:hidden flex space-x-1">
+            <Button variant="ghost" size="icon" asChild className="rounded-full">
               <Link href="/">
                 <Home className="h-5 w-5" />
               </Link>
             </Button>
-            <Button variant="ghost" size="icon" asChild>
+            <Button variant="ghost" size="icon" asChild className="rounded-full">
               <Link href="/history">
                 <History className="h-5 w-5" />
               </Link>
             </Button>
           </div>
-          <Link
-            href="https://github.com/JagjeevanAK/manim-generator-studio"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-4 text-sm font-medium text-muted-foreground hover:text-primary"
-          >
-            <span className="flex items-center space-x-1 gap-2">
-              <GithubIcon className="h-5 w-5" />
-              Star on GitHub
-            </span>
-          </Link>
-          <ModeToggle />
+
+          <Button variant="ghost" size="sm" asChild className="hidden sm:flex rounded-full gap-2 text-muted-foreground hover:text-foreground">
+            <Link
+              href="https://github.com/JagjeevanAK/manim-generator-studio"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <GithubIcon className="h-4 w-4" />
+              <span>Star on GitHub</span>
+            </Link>
+          </Button>
+
+          <div className="pl-2 border-l border-border/50 ml-2">
+            <ModeToggle />
+          </div>
         </div>
       </div>
     </header>

@@ -99,35 +99,43 @@ def ingest_docs():
 
     batch_size = 10
     max_retries = 10
+    start_batch = 561  # Resume from batch 291 (0-indexed: starts at batch index 290)
 
-    for i in range(0, len(final_splits), batch_size):
+    # Create vector store instance once to avoid thread leaks
+    print("Initializing Pinecone vector store...")
+    vectorstore = PineconeVectorStore(
+        index_name=settings.PINECONE_INDEX_NAME,
+        embedding=embedding,
+        pinecone_api_key=settings.PINECONE_API_KEY,
+    )
+    print("Vector store initialized")
+
+    for i in range((start_batch - 1) * batch_size, len(final_splits), batch_size):
         batch = final_splits[i : i + batch_size]
+        batch_num = i // batch_size + 1
         attempt = 0
         while attempt < max_retries:
             try:
                 print(
-                    f"Processing batch {i // batch_size + 1} with {len(batch)} documents, attempt {attempt + 1}"
+                    f"Processing batch {batch_num} with {len(batch)} documents, attempt {attempt + 1}"
                 )
-                PineconeVectorStore.from_documents(
-                    batch,
-                    embedding,
-                    index_name=settings.PINECONE_INDEX_NAME,
-                )
-                print(f"Batch {i // batch_size + 1} added to Pinecone")
+                # Use add_documents instead of from_documents to reuse the instance
+                vectorstore.add_documents(batch)
+                print(f"Batch {batch_num} added to Pinecone")
                 break
             except Exception as e:
-                if "429" in str(e) or "quota" in str(e).lower() or "ResourceExhausted" in str(e):
-                    wait_time = (
-                        2**attempt * 2
-                    )
-                    print(f"Quota exceeded, retrying after {wait_time} seconds...")
+                error_msg = str(e).lower()
+                if "429" in str(e) or "quota" in error_msg or "resourceexhausted" in error_msg or "thread" in error_msg:
+                    wait_time = 2**attempt * 2
+                    print(f"Rate limit or resource issue, retrying after {wait_time} seconds...")
                     time.sleep(wait_time)
                     attempt += 1
                 else:
+                    print(f"Unexpected error: {e}")
                     raise
         else:
             print(
-                f"Failed to process batch {i // batch_size + 1} after {max_retries} retries. Skipping."
+                f"Failed to process batch {batch_num} after {max_retries} retries. Skipping."
             )
 
         time.sleep(2)

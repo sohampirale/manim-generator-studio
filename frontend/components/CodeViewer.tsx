@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Copy, Check } from "lucide-react"
+import { Copy, Check, Terminal } from "lucide-react"
 
 interface CodeViewerProps {
   code: string
@@ -18,15 +18,37 @@ export default function CodeViewer({ code }: CodeViewerProps) {
   }
 
   return (
-    <div className="relative">
-      <div className="absolute top-2 right-2">
-        <Button variant="ghost" size="icon" onClick={handleCopy} className="h-8 w-8 bg-background/80 backdrop-blur-sm">
-          {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+    <div className="relative rounded-xl overflow-hidden border border-border/50 bg-[#1e1e1e] shadow-xl">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#252526] border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <Terminal className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">manim_script.py</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCopy}
+          className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-white hover:bg-white/10"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-green-500" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              Copy Code
+            </>
+          )}
         </Button>
       </div>
-      <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-        <code>{code || "No code available"}</code>
-      </pre>
+
+      <div className="overflow-x-auto max-h-[500px] custom-scrollbar">
+        <pre className="p-4 text-sm font-mono leading-relaxed text-gray-300">
+          <code>{code || "# No code available"}</code>
+        </pre>
+      </div>
     </div>
   )
 }
