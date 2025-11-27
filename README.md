@@ -2,6 +2,46 @@
 
 A modern web application for generating and rendering Manim animations using AI.
 
+## Docker Compose Quick Start (Recommended)
+
+The fastest way to get started is using Docker Compose:
+
+```bash
+# 1. Clone the repository
+git clone <repository-url>
+cd manim-generator-studio
+
+# 2. Set up environment variables
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+# Edit .env files with your API keys and configuration
+
+# 3. Start the entire stack with one command
+docker compose up --build
+
+# The application will be available at:
+# - Frontend: http://localhost:3000
+# - Backend API: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
+```
+
+To run in detached mode:
+```bash
+docker compose up -d --build
+```
+
+To stop all services:
+```bash
+docker compose down
+```
+
+To view logs:
+```bash
+docker compose logs -f
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -45,13 +85,16 @@ The frontend will be available at `http://localhost:3000`
 
 ## Requirements
 
-### For Local Development
+### Docker (Recommended)
+- **Docker** version 20.10 or higher
+- **Docker Compose** version 2.0 or higher
+
+This is the easiest way to get started! Everything runs in containers with all dependencies pre-configured.
+
+### For Local Development (Advanced)
 - **Backend**: [uv](https://docs.astral.sh/uv/) (Python package manager)
 - **Frontend**: [pnpm](https://pnpm.io/) or npm
 - **System**: ffmpeg, Cairo, Pango, LaTeX (see backend README)
-
-### For Docker Development
-- Docker & Docker Compose
 
 ## Environment Variables
 
@@ -67,12 +110,12 @@ cp frontend/.env.example frontend/.env
 
 ## Features
 
-- 🎨 Generate Manim animations from natural language
-- 🤖 AI-powered code generation using Google Gemini
-- 📚 RAG-based documentation search
-- 🎬 Real-time rendering with quality options
-- 💾 Cloud storage with Supabase
-- 📊 Job history and status tracking
+- Generate Manim animations from natural language
+- AI-powered code generation using Google Gemini
+- RAG-based documentation search
+- Real-time rendering with quality options
+- Cloud storage with Supabase
+- Job history and status tracking
 
 ## Tech Stack
 
@@ -127,6 +170,50 @@ Once the backend is running:
 ## License
 
 MIT
+
+## Troubleshooting
+
+### Docker Issues
+
+**Port already in use:**
+```bash
+# Find and stop the process using the port
+lsof -ti:3000 | xargs kill -9  # For frontend
+lsof -ti:8000 | xargs kill -9  # For backend
+```
+
+**Permission denied errors:**
+```bash
+# On Linux, you may need to run with sudo
+sudo docker compose up --build
+
+# Or add your user to the docker group
+sudo usermod -aG docker $USER
+# Then log out and log back in
+```
+
+**Container fails to start:**
+```bash
+# Check logs for specific service
+docker compose logs backend
+docker compose logs frontend
+
+# Restart a specific service
+docker compose restart backend
+```
+
+**Environment variables not loaded:**
+- Ensure `.env` files exist in both `backend/` and `frontend/` directories
+- Check that `.env` files contain all required variables from `.env.example`
+- Restart containers after updating `.env` files
+
+**Build cache issues:**
+```bash
+# Clear build cache and rebuild
+docker compose down
+docker compose build --no-cache
+docker compose up
+```
 
 ## Support
 

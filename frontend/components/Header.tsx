@@ -56,7 +56,7 @@ export default function Header() {
             </Button>
           </div>
           <Link
-            href="https://github.com/abhayymishraa/manim-2d-3d-generation-project"
+            href="https://github.com/JagjeevanAK/manim-generator-studio"
             target="_blank"
             rel="noopener noreferrer"
             className="ml-4 text-sm font-medium text-muted-foreground hover:text-primary"
