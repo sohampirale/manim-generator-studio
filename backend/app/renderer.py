@@ -228,7 +228,10 @@ Please fix the code to address this error. Only respond with the complete, corre
 
             with open(status_path, "w") as f:
                 f.write("completed\n")
-                f.write(supabase_url)
+                if supabase_url:
+                    f.write(supabase_url)
+                else:
+                    f.write("error_uploading")
 
             try:
                 shutil.rmtree(job_dir)
