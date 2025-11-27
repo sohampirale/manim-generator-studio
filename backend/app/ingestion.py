@@ -97,8 +97,8 @@ def ingest_docs():
     final_splits = text_splitter.split_documents(md_header_splits)
     print(f"Final split count: {len(final_splits)}")
 
-    batch_size = 100
-    max_retries = 5
+    batch_size = 10
+    max_retries = 10
 
     for i in range(0, len(final_splits), batch_size):
         batch = final_splits[i : i + batch_size]
@@ -116,9 +116,9 @@ def ingest_docs():
                 print(f"Batch {i // batch_size + 1} added to Pinecone")
                 break
             except Exception as e:
-                if "ResourceExhausted" in str(e):
+                if "429" in str(e) or "quota" in str(e).lower() or "ResourceExhausted" in str(e):
                     wait_time = (
-                        2**attempt * 5
+                        2**attempt * 2
                     )
                     print(f"Quota exceeded, retrying after {wait_time} seconds...")
                     time.sleep(wait_time)
@@ -130,7 +130,7 @@ def ingest_docs():
                 f"Failed to process batch {i // batch_size + 1} after {max_retries} retries. Skipping."
             )
 
-        time.sleep(0.25)
+        time.sleep(2)
 
     print("****Loading to vectorstore done ***")
 
