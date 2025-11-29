@@ -1,6 +1,7 @@
 import re
 import logging
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_cohere import ChatCohere, CohereEmbeddings
 from .config import settings
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import (
@@ -19,11 +20,23 @@ embedding = GoogleGenerativeAIEmbeddings(
     google_api_key=settings.GEMINI_API_KEY,
 )
 
+# embedding = CohereEmbeddings(
+#     model="embed-multilingual-v2.0",
+#     cohere_api_key=settings.COHERE_API_KEY
+# )
+
 chat = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     verbose=True,
     google_api_key=settings.GEMINI_API_KEY
 )
+
+# chat = ChatCohere(
+#     model="command-r-plus-08-2024", 
+#     verbose=True,
+#     cohere_api_key=settings.COHERE_API_KEY,
+#     temperature=0.3 
+# )
 
 chat_history = []
 
@@ -210,6 +223,8 @@ Here are examples of good Manim code structure:
         logger.info(f"Generated response for prompt: {prompt[:30]}...")
 
         code = extract_python_code(response.content)
+        print('-----------------------GENARATED manim code -----------------------')
+        print(code)
         return code
 
     except Exception as e:
