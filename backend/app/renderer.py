@@ -7,13 +7,27 @@ import shutil
 from .config import settings
 from .generator import generate_manim_code
 from .supabase_client import update_job_data, upload_to_supabase
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage,SystemMessage
+from langchain_cohere import ChatCohere
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 RENDER_DIR = settings.RENDER_DIR
 MAX_ITERATIONS = 5
+
+chat = ChatCohere(
+    model="command-r-plus-08-2024", 
+    verbose=True,
+    cohere_api_key=settings.COHERE_API_KEY,
+    temperature=0.3 
+)
 
 
 def run_manim(code: str, temp_dir: str, quality: str = "m") -> tuple[bool, str]:
@@ -119,6 +133,53 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
 
     conversation_history = []
     conversation_history.append(HumanMessage(content=prompt))
+    #prompt = user_query
+    #1.create one transcript for tutoring
+    #2.manim_scynchronized_transcript(generates transcript as well as mentions what the manim will be showing in the video)
+    #3.TTS takes the manim_sychcronized_transcript and create one FINAL transcript with proper pauses and all and generates on entire audio
+    #4.Give the manim_synchronized_transcript as well as TTS FINAL Transcript to manim code generator so it can adopt to it
+
+    tutor_transcript_generator_system_prompt = """
+    You are an expert Educational Scriptwriter for short, animated explainer videos. 
+    Your task is to take a simple user topic (e.g., "Area of a Triangle") and generate a high-quality, engaging voiceover transcript.
+
+    ### YOUR GOAL
+    Write a clear, concise, and conversational script that a Text-to-Speech (TTS) engine will read. The script must explain the concept step-by-step.
+
+    ### CRITICAL WRITING RULES:
+    1.  **Pure Spoken Audio Only:** Do NOT include scene descriptions, camera directions, or visual cues like [Draw Triangle] or (Pause). Write ONLY what the voice should say.
+    2.  **"Visual-Ready" Language:** Write as if the viewer is looking at the screen. Use pointing language:
+        * *Good:* "Look at this shape here." / "Notice how the height connects to the base."
+        * *Bad:* "Imagine a triangle." (No, we are showing it).
+        * *Bad:* "I am now drawing a red line." (Don't describe the action, explain the concept).
+    3.  **Pacing:** Break the text into short, logical paragraphs. Each paragraph will eventually become a distinct animation phase.
+    4.  **Tone:** Enthusiastic, clear, and beginner-friendly. Avoid overly complex jargon unless you explain it.
+    5.  **Length:** Keep it focused. Target a duration of 30-60 seconds (approx. 75-150 words).
+
+    ### OUTPUT FORMAT
+    Return the transcript as plain text, separated by double newlines for logical pauses.
+
+    ### EXAMPLE INPUT:
+    "Explain the Pythagorean Theorem"
+
+    ### EXAMPLE OUTPUT:
+    "Let's look at a right-angled triangle. This creates a unique relationship between its three sides.
+
+    We call the two shorter sides 'a' and 'b', and the longest side, opposite the right angle, is the hypotenuse, 'c'.
+
+    Now, imagine we build a square on each of these sides. The theorem tells us something fascinating about their areas.
+
+    The area of square 'a' plus the area of square 'b' is exactly equal to the area of square 'c'. This is why we say a-squared plus b-squared equals c-squared."
+    """
+
+    messages = [
+        SystemMessage(content=tutor_transcript_generator_system_prompt),
+        HumanMessage(content=prompt)
+    ]
+
+    tutor_transcript = chat.invoke(messages)
+
+    print(f'tutor_transcript : {tutor_transcript}')
 
     try:
         code = generate_manim_code(prompt)
