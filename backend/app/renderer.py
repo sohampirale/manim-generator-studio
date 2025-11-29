@@ -336,11 +336,11 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
         HumanMessage(content=prompt)
     ]
 
-    manim_synchronized_transcript = chat.invoke(messages)
+    manim_synchronized_transcript = llm_with_structured_output.invoke(messages)
 
     print(f'manim_synchronized_transcript : {manim_synchronized_transcript}')
 
-    tts_final_transcript_generator_system_prompt = tts_final_transcript_generator_system_prompt = """
+    tts_final_transcript_generator_system_prompt = """
         You are the **Audio Mastering Agent**.
         Your ONLY goal is to output a raw string for a Text-to-Speech (TTS) engine.
 
