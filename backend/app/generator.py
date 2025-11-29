@@ -15,28 +15,28 @@ from langchain_pinecone import PineconeVectorStore
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-embedding = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001",
-    google_api_key=settings.GEMINI_API_KEY,
-)
-
-# embedding = CohereEmbeddings(
-#     model="embed-multilingual-v2.0",
-#     cohere_api_key=settings.COHERE_API_KEY
+# embedding = GoogleGenerativeAIEmbeddings(
+#     model="models/embedding-001",
+#     google_api_key=settings.GEMINI_API_KEY,
 # )
 
-chat = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    verbose=True,
-    google_api_key=settings.GEMINI_API_KEY
+embedding = CohereEmbeddings(
+    model="embed-multilingual-v2.0",
+    cohere_api_key=settings.COHERE_API_KEY
 )
 
-# chat = ChatCohere(
-#     model="command-r-plus-08-2024", 
+# chat = ChatGoogleGenerativeAI(
+#     model="gemini-2.5-flash",
 #     verbose=True,
-#     cohere_api_key=settings.COHERE_API_KEY,
-#     temperature=0.3 
+#     google_api_key=settings.GEMINI_API_KEY
 # )
+
+chat = ChatCohere(
+    model="command-r-plus-08-2024", 
+    verbose=True,
+    cohere_api_key=settings.COHERE_API_KEY,
+    temperature=0.3 
+)
 
 chat_history = []
 
@@ -63,19 +63,30 @@ def generate_manim_code(prompt: str) -> str:
     add_message_to_history(HumanMessage(content=prompt))
 
     query_enhancement_prompt = """
-    I need to search for relevant Manim documentation to help with a technical visualization request.
-    
-    Original request: {input}
-    
-    Convert this into a search query that would effectively retrieve Manim documentation by:
-    1. Identifying the core mathematical or visual concept (e.g., "vector field", "complex numbers", "graph theory")
-    2. Including specific Manim classes or methods if mentioned (e.g., "ValueTracker", "MathTex", "ThreeDScene")
-    3. Adding technical terms related to animation or visualization (e.g., "transformation", "coordinate system", "camera movement")
-    4. Using Manim-specific terminology where applicable
-    
-    Format the query as a comma-separated list of relevant terms. If the original request mentions a mathematical theorem, include both the theorem name and the mathematical domain.
-    
-    Enhanced search query:"""
+        You are a Manim Library Search Optimizer. Your task is to translate a user's natural language request into a precise search query for the Manim documentation and API reference.
+
+        Original request: {input}
+
+        Construct a search query by following these steps:
+
+        1. **Map to API Primitives:** specific Manim classes needed to build the visual.
+        - Example: "Draw a box" -> `Rectangle`, `Square`, `SurroundingRectangle`
+        - Example: "Show an equation" -> `MathTex`, `LaTeX`
+        - Example: "Slide text in" -> `FadeIn`, `Write`, `Shift`
+
+        2. **Deconstruct High-Level Concepts:** If the user asks for a complex diagram (e.g., "Neural Network", "Solar System"), list the building blocks.
+        - "Neural Network" -> `Circle`, `Line`, `VGroup`, `Graph`
+        - "Solar System" -> `Sphere`, `Orbit`, `Rotate`, `ThreeDScene`
+
+        3. **Include Layout & Grouping Terms:** If the request implies structure or ordering, include positioning keywords.
+        - Keywords: `VGroup`, `arrange`, `next_to`, `align_to`, `grid`
+
+        4. **Identify Mathematical Domain:** If a specific math field is mentioned, include the relevant module.
+        - Example: `manim.mobject.graphing`, `manim.mobject.three_d`, `manim.scene.vector_space_scene`
+
+        Output ONLY a comma-separated list of the top 5-10 most relevant search terms.
+
+Enhanced search query:"""
 
     try:
         enhanced_query_response = chat.invoke(
@@ -114,92 +125,76 @@ def generate_manim_code(prompt: str) -> str:
         logger.info(f"Retrieved {len(unique_docs)} unique relevant documents")
 
         system_prompt = """
-You are an expert in creating Manim animations. Use the context below from the Manim documentation to generate Python code using the Manim library to visualize mathematical concepts.
+You are an elite Manim Animation Expert. Your goal is to write Python code using the Manim library to visualize complex concepts for educational videos.
 
-Follow these rules strictly:
-1. Always include proper imports from manim.
-2. Define a construct() method that builds the visualization step by step.
-3. Use animations like Create(), Write(), etc.
-4. Keep code simple, focused, and well-commented.
-5. Do NOT include explanations or text outside Python code.
-6. Include necessary imports like numpy as np if used.
+### 1. CODE STRUCTURE & FORMAT
+- **Imports:** Always start with `from manim import *` and `import numpy as np`.
+- **Class Structure:** Define a class inheriting from `Scene` (e.g., `class ConceptVisual(Scene):`).
+- **Method:** Write all logic inside the `construct(self):` method.
+- **Output:** Return ONLY the raw Python code. Do not wrap it in markdown ticks (```python) or add text explanations outside the code.
 
-CONTEXT FROM MANIM DOCUMENTATION:
-{context}
+### 2. VOICEOVER SYNCHRONIZATION (CRITICAL)
+- **Pacing:** You are creating a video that will be narrated.
+- **The Rule:** After *every* major step (creating a shape, writing text, moving an object), you MUST insert `self.wait(2)` or `self.wait(3)`.
+- **Reasoning:** This silence allows the AI narrator time to explain what just appeared on screen.
 
-Here are examples of good Manim code structure:
-    
-    Example 1 - Boolean operations visualization:
-    ```python
-    from manim import *
+### 3. LAYOUT & SPATIAL AWARENESS
+- **Screen Limits:** Canvas is **14 units wide** x **8 units high**.
+- **Object Sizing:** Never create objects wider than 3 units unless they are the background.
+- **Text Sizing:** Use `font_size=24` for labels, `font_size=36` for titles, `font_size=18` for secondary data.
+- **Container Style:** All Rectangles/Circles used as containers must have `fill_color=BLACK` and `fill_opacity=1`.
+- **Labeling Strategy:**
+    - Primary labels go OUTSIDE the container: `.next_to(box, UP)`.
+    - **STACKING RULE:** If multiple text objects belong above/below the same container, stack them relative to *each other*, not the container.
+      *WRONG:* `text1.next_to(box, UP)`, `text2.next_to(box, UP)` (Causes overlap)
+      *CORRECT:* `text1.next_to(box, UP)`, `text2.next_to(text1, UP)` (Stacks them cleanly)
 
-    class BooleanOperations(Scene):
-        def construct(self):
-            ellipse1 = Ellipse(
-                width=4.0, height=5.0, fill_opacity=0.5, color=BLUE, stroke_width=10
-            ).move_to(LEFT)
-            ellipse2 = ellipse1.copy().set_color(color=RED).move_to(RIGHT)
-            bool_ops_text = MarkupText("<u>Boolean Operation</u>").next_to(ellipse1, UP * 3)
-            ellipse_group = Group(bool_ops_text, ellipse1, ellipse2).move_to(LEFT * 3)
-            self.play(FadeIn(ellipse_group))
+#### 3.1 SEQUENTIAL FLOW (CRITICAL)
+- When visualizing a process (Step A -> Step B):
+  - **NEVER** place Step B on top of Step A using `.move_to(step_a.get_center())`.
+  - **ALWAYS** place Step B next to Step A using `.next_to(step_a, RIGHT, buff=1.5)`.
+  - Use `VGroup` to group a Box+Label before positioning the group.
 
-            i = Intersection(ellipse1, ellipse2, color=GREEN, fill_opacity=0.5)
-            self.play(i.animate.scale(0.25).move_to(RIGHT * 5 + UP * 2.5))
-            intersection_text = Text("Intersection", font_size=23).next_to(i, UP)
-            self.play(FadeIn(intersection_text))
+### 4. CRITICAL SYNTAX RULES (DO NOT BREAK)
+- **Rule A (Arrows):** `GrowArrow` requires an **Mobject**, not coordinates.
+    - *WRONG:* `self.play(GrowArrow(start, end))`
+    - *CORRECT:* `self.play(GrowArrow(Arrow(start, end)))`
+- **Rule B (Edges):** Connect arrows to **Edges**, not Centers.
+    - *WRONG:* `Arrow(box.get_center(), ...)`
+    - *CORRECT:* `Arrow(box.get_right(), ...)` or `Arrow(box.get_edge_center(UP), ...)`
+- **Rule C (Transform):** `Transform` requires two Mobjects. Never transform a string.
+    - *WRONG:* `Transform(text_obj, "New String")`
+    - *CORRECT:* `Transform(text_obj, Text("New String"))`
+- **Rule D (2D vs 3D):** Use `Rectangle`/`Circle` (2D) instead of `Cylinder`/`Cube` (3D).
+- **Rule E (Path Animations):** `MoveAlongPath` requires a **Physical Path** (Line/Arc/Circle).
+    - *WRONG:* `MoveAlongPath(obj.animate.move_to(...))`  <-- CAUSES CRASH
+    - *CORRECT:* `MoveAlongPath(obj, Line(start, end))` or `MoveAlongPath(obj, ArcBetweenPoints(start, end))`
 
-            u = Union(ellipse1, ellipse2, color=ORANGE, fill_opacity=0.5)
-            union_text = Text("Union", font_size=23)
-            self.play(u.animate.scale(0.3).next_to(i, DOWN, buff=union_text.height * 3))
-            union_text.next_to(u, UP)
-            self.play(FadeIn(union_text))
+### 5. REFERENCE EXAMPLE (STACKED LABELS & FLOW)
+```python
+from manim import *
+class StackedFlow(Scene):
+    def construct(self):
+        # 1. Input
+        box1 = Rectangle(width=2, height=1, fill_color=BLACK, fill_opacity=1)
+        # Primary Label relative to Box
+        label1_main = Text("Main Title", font_size=24).next_to(box1, UP)
+        # Secondary data STACKED relative to Main Label
+        label1_data = Text("(Data: [1,2,3])", font_size=18, color=YELLOW).next_to(label1_main, UP, buff=0.1)
+        step1 = VGroup(box1, label1_main, label1_data).to_edge(LEFT)
+        self.play(Create(step1))
+        self.wait(2)
 
-            e = Exclusion(ellipse1, ellipse2, color=YELLOW, fill_opacity=0.5)
-            exclusion_text = Text("Exclusion", font_size=23)
-            self.play(e.animate.scale(0.3).next_to(u, DOWN, buff=exclusion_text.height * 3.5))
-            exclusion_text.next_to(e, UP)
-            self.play(FadeIn(exclusion_text))
-
-            d = Difference(ellipse1, ellipse2, color=PINK, fill_opacity=0.5)
-            difference_text = Text("Difference", font_size=23)
-            self.play(d.animate.scale(0.3).next_to(u, LEFT, buff=difference_text.height * 3.5))
-            difference_text.next_to(d, UP)
-            self.play(FadeIn(difference_text))
-    ```
-    
-    Example 2 - Following a graph with the camera:
-    ```python
-    from manim import *
-    import numpy as np
-
-    class FollowingGraphCamera(MovingCameraScene):
-        def construct(self):
-            self.camera.frame.save_state()
-
-            # create the axes and the curve
-            ax = Axes(x_range=[-1, 10], y_range=[-1, 10])
-            graph = ax.plot(lambda x: np.sin(x), color=BLUE, x_range=[0, 3 * PI])
-
-            # create dots based on the graph
-            moving_dot = Dot(ax.i2gp(graph.t_min, graph), color=ORANGE)
-            dot_1 = Dot(ax.i2gp(graph.t_min, graph))
-            dot_2 = Dot(ax.i2gp(graph.t_max, graph))
-
-            self.add(ax, graph, dot_1, dot_2, moving_dot)
-            self.play(self.camera.frame.animate.scale(0.5).move_to(moving_dot))
-
-            def update_curve(mob):
-                mob.move_to(moving_dot.get_center())
-
-            self.camera.frame.add_updater(update_curve)
-            self.play(MoveAlongPath(moving_dot, graph, rate_func=linear))
-            self.camera.frame.remove_updater(update_curve)
-
-            self.play(Restore(self.camera.frame))
-    ```
-    
-    Generate ONLY the Python code needed to visualize the concept described by the user.
-    """
+        # 2. Process (Placed to right)
+        box2 = Rectangle(width=2, height=1, fill_color=BLACK, fill_opacity=1)
+        label2 = Text("Process", font_size=24).next_to(box2, UP)
+        step2 = VGroup(box2, label2).next_to(step1, RIGHT, buff=2)
+        
+        # 3. Connect
+        self.play(GrowArrow(Arrow(box1.get_right(), box2.get_left())))
+        self.play(Create(step2))
+        self.wait(3)
+Generate Python code for the user's request following these strict guidelines. """
 
         human_prompt = (
             "Concept to visualize: {input}\n\nPlease provide only the Python code."
