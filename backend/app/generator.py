@@ -3,7 +3,7 @@ import logging
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_cohere import ChatCohere, CohereEmbeddings
 from .config import settings
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage,SystemMessage
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
@@ -58,40 +58,50 @@ def extract_python_code(text: str) -> str:
     return matches[0] if matches else text
 
 
-def generate_manim_code(prompt: str) -> str:
+def generate_manim_code(prompt: str,manim_synchronized_transcript:str,timestamps:list) -> str:
     """Generate Manim code using Cohere model with improved retrieval context."""
     add_message_to_history(HumanMessage(content=prompt))
 
     query_enhancement_prompt = """
-        You are a Manim Library Search Optimizer. Your task is to translate a user's natural language request into a precise search query for the Manim documentation and API reference.
+        You are a Manim Library Search Optimizer. 
+        Your task is to generate a precise search query for the Manim documentation based on the User's Topic AND the specific Visual Plan.
 
-        Original request: {input}
+        ### INPUTS
+        1. **User Topic:** {input}
+        2. **Visual Plan (JSON):** {manim_synchronized_transcript}
 
-        Construct a search query by following these steps:
+        ### YOUR TASK
+        Construct a search query by analyzing both inputs:
 
-        1. **Map to API Primitives:** specific Manim classes needed to build the visual.
-        - Example: "Draw a box" -> `Rectangle`, `Square`, `SurroundingRectangle`
-        - Example: "Show an equation" -> `MathTex`, `LaTeX`
-        - Example: "Slide text in" -> `FadeIn`, `Write`, `Shift`
+        1.  **Analyze the Visual Plan:** Look at the `visual_instruction` fields in the JSON.
+            * If it mentions "arrows", add `Arrow`, `GrowArrow`.
+            * If it mentions "grids" or "tiles", add `VGroup`, `Square`, `arrange_in_grid`.
+            * If it mentions "braces" or "labels", add `Brace`, `Text`, `next_to`.
+            * If it mentions "transforming", add `ReplacementTransform`, `Transform`.
 
-        2. **Deconstruct High-Level Concepts:** If the user asks for a complex diagram (e.g., "Neural Network", "Solar System"), list the building blocks.
-        - "Neural Network" -> `Circle`, `Line`, `VGroup`, `Graph`
-        - "Solar System" -> `Sphere`, `Orbit`, `Rotate`, `ThreeDScene`
+        2.  **Identify the Mathematical Domain (from User Topic):**
+            * Calculus -> `Axes`, `Graph`, `TangentLine`.
+            * Geometry -> `Polygon`, `Angle`, `dashed_line`.
+            * Linear Algebra -> `Vector`, `Matrix`, `LinearTransformationScene`.
 
-        3. **Include Layout & Grouping Terms:** If the request implies structure or ordering, include positioning keywords.
-        - Keywords: `VGroup`, `arrange`, `next_to`, `align_to`, `grid`
+        3.  **Include Layout Keywords:**
+            * Always include: `VGroup`, `arrange`, `next_to`, `align_to`.
 
-        4. **Identify Mathematical Domain:** If a specific math field is mentioned, include the relevant module.
-        - Example: `manim.mobject.graphing`, `manim.mobject.three_d`, `manim.scene.vector_space_scene`
+        ### OUTPUT FORMAT
+        Output ONLY a comma-separated list of the top 5-10 most relevant search terms. Do not add explanations.
 
-        Output ONLY a comma-separated list of the top 5-10 most relevant search terms.
-
-Enhanced search query:"""
+        Enhanced search query:"""
 
     try:
+        messages=[
+            SystemMessage(content=query_enhancement_prompt),
+            HumanMessage(content=f'manin_synchronized_transcript : {manim_synchronized_transcript}')
+        ]
+
         enhanced_query_response = chat.invoke(
-            input=query_enhancement_prompt.format(input=prompt)
+           messages
         )
+
         enhanced_query = enhanced_query_response.content
         logger.info(f"Enhanced search query: {enhanced_query}")
 
@@ -124,96 +134,62 @@ Enhanced search query:"""
 
         logger.info(f"Retrieved {len(unique_docs)} unique relevant documents")
 
-        system_prompt = """
-        You are an elite Manim Animation Expert. Your goal is to write Python code using the Manim library to visualize complex concepts for educational videos.
+        manim_code_generator_system_prompt = """
+            You are an elite Manim Python Developer. 
+            Your goal is to convert a structured JSON `scene_plan` into a fully functional, crash-free `Scene` class.
 
-        ### 1. CODE STRUCTURE & FORMAT
-        - **Imports:** Always start with `from manim import *` and `import numpy as np`.
-        - **Class Structure:** Define a class inheriting from `Scene` (e.g., `class ConceptVisual(Scene):`).
-        - **Method:** Write all logic inside the `construct(self):` method.
-        - **Output:** Return ONLY the raw Python code. Do not wrap it in markdown ticks (```python) or add text explanations outside the code.
+            ### INPUT DATA
+            You will receive a JSON list called `scene_plan`. Each item represents a phase of the video:
+            - `visual_instruction`: The specific shape, text, or diagram to draw.
+            - `animation_type`: The suggested Manim animation class (e.g., Create, Write, Transform, Flash).
 
-        ### 2. VOICEOVER SYNCHRONIZATION (CRITICAL)
-        - **Pacing:** You are creating a video that will be narrated.
-        - **The Rule:** After *every* major step (creating a shape, writing text, moving an object), you MUST insert `self.wait(2)` or `self.wait(3)`.
-        - **Reasoning:** This silence allows the AI narrator time to explain what just appeared on screen.
+            ### CORE RESPONSIBILITIES
+            1.  **Iterate:** Write code for Phase 1, then Phase 2, etc., following the JSON order.
+            2.  **Timing:** At the end of *every* phase, insert `self.wait(2)` (or `self.wait(3)` for complex animations).
+            3.  **Variable Management:** Give variables descriptive names (e.g., `triangle`, `label_a`). Use `VGroup` to group related items (e.g., `box_group = VGroup(box, label)`).
 
-        ### 3. LAYOUT & SPATIAL AWARENESS
-        - **Screen Limits:** Canvas is **14 units wide** x **8 units high**.
-        - **Object Sizing:** Never create objects wider than 3 units unless they are the background.
-        - **Text Sizing:** Use `font_size=24` for labels, `font_size=36` for titles, `font_size=18` for secondary data.
-        - **Container Style:** All Rectangles/Circles used as containers must have `fill_color=BLACK` and `fill_opacity=1`.
-        - **Labeling Strategy:**
-            - Primary labels go OUTSIDE the container: `.next_to(box, UP)`.
-            - **STACKING RULE:** If multiple text objects belong above/below the same container, stack them relative to *each other*, not the container.
-            *WRONG:* `text1.next_to(box, UP)`, `text2.next_to(box, UP)` (Causes overlap)
-            *CORRECT:* `text1.next_to(box, UP)`, `text2.next_to(text1, UP)` (Stacks them cleanly)
+            ### VISUAL STYLE & LAYOUT RULES (CRITICAL)
+            1.  **Container Style (The "Ghost" Fix):** - All `Rectangle`, `Circle`, `Square` acting as containers must have `fill_color=BLACK`, `fill_opacity=1`, and a colored `stroke_color`.
+                - This prevents arrows from showing through them.
+            2.  **Labeling (The "Collision" Fix):** - Place labels **OUTSIDE** shapes (e.g., `.next_to(box, UP)`).
+                - **STACKING:** If adding a second label (like a data value) above a box that already has a title, stack it relative to the **TITLE**, not the box.
+                - *Example:* `val_text.next_to(title_text, UP, buff=0.2)`
+            3.  **Flow & Positioning:**
+                - Use Left-to-Right flow.
+                - **NEVER** use `move_to(previous_obj.get_center())` for a new step (this causes overlap).
+                - **ALWAYS** use `next_to(previous_group, RIGHT, buff=1.5)`.
 
-        #### 3.1 SEQUENTIAL FLOW (CRITICAL)
-        - When visualizing a process (Step A -> Step B):
-        - **NEVER** place Step B on top of Step A using `.move_to(step_a.get_center())`.
-        - **ALWAYS** place Step B next to Step A using `.next_to(step_a, RIGHT, buff=1.5)`.
-        - Use `VGroup` to group a Box+Label before positioning the group.
+            ### TRANSLATION LOGIC (INTERPRETING THE JSON)
+            - **"Grid" or "Tiles":** Use two nested `for` loops to create small squares, add them to a `VGroup`, and arrange them.
+            - **"Paintbrush" / "Fill":** Manim has no brush. Interpret this as animating the `fill_opacity` from 0 to 1 (e.g., `rect.animate.set_fill(BLUE, opacity=0.5)`).
+            - **"Highlight":** Use `Indicate(mobject)` or `Circumscribe(mobject)`.
+            - **"Dashed Line":** Use `DashedLine(start, end)`.
 
-        ### 4. CRITICAL SYNTAX RULES (DO NOT BREAK)
-        - **Rule A (Arrows):** `GrowArrow` requires an **Mobject**, not coordinates.
-            - *WRONG:* `self.play(GrowArrow(start, end))`
-            - *CORRECT:* `self.play(GrowArrow(Arrow(start, end)))`
-        - **Rule B (Edges):** Connect arrows to **Edges**, not Centers.
-            - *WRONG:* `Arrow(box.get_center(), ...)`
-            - *CORRECT:* `Arrow(box.get_right(), ...)` or `Arrow(box.get_edge_center(UP), ...)`
-        - **Rule C (Transform):** `Transform` requires two Mobjects. Never transform a string.
-            - *WRONG:* `Transform(text_obj, "New String")`
-            - *CORRECT:* `Transform(text_obj, Text("New String"))`
-        - **Rule D (2D vs 3D):** Use `Rectangle`/`Circle` (2D) instead of `Cylinder`/`Cube` (3D).
-        - **Rule E (Path Animations):** `MoveAlongPath` requires a **Physical Path** (Line/Arc/Circle).
-            - *WRONG:* `MoveAlongPath(obj.animate.move_to(...))`  <-- CAUSES CRASH
-            - *CORRECT:* `MoveAlongPath(obj, Line(start, end))` or `MoveAlongPath(obj, ArcBetweenPoints(start, end))`
+            ### SYNTAX SAFETY RAILS (DO NOT BREAK)
+            1.  **Arrows:** `GrowArrow` needs an Mobject. 
+                - *Correct:* `self.play(GrowArrow(Arrow(start, end)))`
+            2.  **Edges:** Connect arrows to `.get_right()`, `.get_left()`, `.get_top()`, etc., NOT `.get_center()`.
+            3.  **Paths:** `MoveAlongPath` needs a physical path.
+                - *Correct:* `MoveAlongPath(obj, Line(start, end))`
+            4.  **Transforms:** `Transform` needs two Mobjects. Convert strings to `Text()` first.
 
-        ### 5. REFERENCE EXAMPLE (STACKED LABELS & FLOW)
-        ```python
-        from manim import *
-        class StackedFlow(Scene):
-            def construct(self):
-                # 1. Input
-                box1 = Rectangle(width=2, height=1, fill_color=BLACK, fill_opacity=1)
-                # Primary Label relative to Box
-                label1_main = Text("Main Title", font_size=24).next_to(box1, UP)
-                # Secondary data STACKED relative to Main Label
-                label1_data = Text("(Data: [1,2,3])", font_size=18, color=YELLOW).next_to(label1_main, UP, buff=0.1)
-                step1 = VGroup(box1, label1_main, label1_data).to_edge(LEFT)
-                self.play(Create(step1))
-                self.wait(2)
+            ### OUTPUT FORMAT
+            Return ONLY the raw Python code. Start with imports.
 
-                # 2. Process (Placed to right)
-                box2 = Rectangle(width=2, height=1, fill_color=BLACK, fill_opacity=1)
-                label2 = Text("Process", font_size=24).next_to(box2, UP)
-                step2 = VGroup(box2, label2).next_to(step1, RIGHT, buff=2)
-                
-                # 3. Connect
-                self.play(GrowArrow(Arrow(box1.get_right(), box2.get_left())))
-                self.play(Create(step2))
-                self.wait(3)
-        Generate Python code for the user's request following these strict guidelines. """
+            ### SCENE PLAN (JSON):
+            {manim_synchronized_transcript}
 
-        human_prompt = (
-            "Concept to visualize: {input}\n\nPlease provide only the Python code."
-        )
+            ### CONTEXT FROM DOCS:
+            {context}
+            """
+          
+        messages=[
+            SystemMessage(content=manim_code_generator_system_prompt),
+            HumanMessage(content=f"manim_synchronized_transcript : {manim_synchronized_transcript}"),
+            HumanMessage(content=f'user_query : {prompt}')
+        ]
 
-        chat_prompt = ChatPromptTemplate.from_messages(
-            [
-                SystemMessagePromptTemplate.from_template(system_prompt),
-                HumanMessagePromptTemplate.from_template(human_prompt),
-            ]
-        )
-
-        chat_prompt_value = chat_prompt.format_prompt(
-            input=prompt, context=context_text
-        )
-
-        response = chat.invoke(
-            input=chat_prompt_value.to_messages(),
-        )
+        response = chat.invoke(messages)
 
         logger.info(f"Generated response for prompt: {prompt[:30]}...")
 

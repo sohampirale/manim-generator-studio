@@ -15,6 +15,21 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
+import re
+import json
+import math
+from cartesia import Cartesia,AsyncCartesia
+import asyncio
+from pydantic import BaseModel, Field
+
+# Define the data structure you want the LLM to return
+class manim_synchronized_transcript(BaseModel):
+    """The complete plan for generating a Manim video."""
+    
+    manim_synchronized_transcript: list[any] = Field(
+        description="Array of objects of manim_synchronized_transcript with each obj having 3 properties pahse_id, voiceover_text, visual_instruction"
+    )
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,6 +44,7 @@ chat = ChatCohere(
     temperature=0.3 
 )
 
+llm_with_structured_output = chat.with_structured_output(manim_synchronized_transcript)
 
 def run_manim(code: str, temp_dir: str, quality: str = "m") -> tuple[bool, str]:
     """
@@ -118,8 +134,84 @@ def run_manim(code: str, temp_dir: str, quality: str = "m") -> tuple[bool, str]:
                     f"Failed to clean up temporary file {temp_path}: {str(e)}"
                 )
 
+def normalize_word(text):
+    """
+    Removes punctuation and converts to lowercase for easy matching.
+    Example: "Let's!" -> "lets"
+    """
+    return re.sub(r'[^\w]', '', text).lower()
 
-def process_rendering_job(job_id: str, prompt: str, quality: str):
+def map_timestamps_to_phases(phases_json, cartesia_timestamps):
+    """
+    Inputs:
+        phases_json: List of dicts (from your LLM Step 2)
+        cartesia_timestamps: List of dicts [{'word': 'Hello', 'start': 0.1, 'end': 0.3}, ...]
+    
+    Returns:
+        The phases_json with a new 'audio_duration' key in each object.
+    """
+    
+    current_ts_index = 0
+    total_timestamps = len(cartesia_timestamps)
+
+    for phase in phases_json:
+        text = phase.get('voiceover_text', "")
+        
+        # 1. Clean the text into a list of checkable words
+        # "Let's start." -> ["lets", "start"]
+        target_words = [normalize_word(w) for w in text.split()]
+        
+        # Filter out empty strings
+        target_words = [w for w in target_words if w]
+
+        if not target_words:
+            # If phase has no text (just silence), default to 2s or 0s
+            phase['audio_duration'] = 2.0
+            continue
+
+        # 2. Capture Start Time
+        # The start of this phase is the start time of the next available word in the stream
+        if current_ts_index < total_timestamps:
+            start_time = cartesia_timestamps[current_ts_index]['start']
+        else:
+            phase['audio_duration'] = 2.0
+            continue
+
+        # 3. Advance the cursor through the timestamp list
+        # We look for the words in this phase to "consume" them from the master list
+        matches_found = 0
+        
+        for target_word in target_words:
+            # Search forward in the timestamp list until we find a match
+            # This handles cases where Cartesia might split words differently
+            while current_ts_index < total_timestamps:
+                ts_word = normalize_word(cartesia_timestamps[current_ts_index]['word'])
+                current_ts_index += 1
+                
+                if ts_word == target_word: # Found a match!
+                    matches_found += 1
+                    break # Move to next target word
+                
+                # If words don't match, we skip the timestamp word (it might be a filler or noise)
+        
+        # 4. Capture End Time
+        # The end of this phase is the 'end' time of the LAST word we consumed
+        # We use (current_ts_index - 1) because the loop incremented it one extra time
+        if current_ts_index > 0:
+            end_time = cartesia_timestamps[current_ts_index - 1]['end']
+        else:
+            end_time = start_time + 2.0
+
+        # 5. Calculate Duration & Add Buffer
+        duration = end_time - start_time
+        
+        # CRITICAL: Add 0.5s buffer so the animation doesn't snap instantly to the next one
+        phase['audio_duration'] = round(duration + 0.5, 2)
+
+    return phases_json
+
+
+async def process_rendering_job(job_id: str, prompt: str, quality: str):
     """
     Process a rendering job from start to finish with iterative error correction:
     1. Generate Manim code
@@ -267,9 +359,9 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
         4.  **SSML TAGS:** Use `<break time="2.0s" />` for standard pauses and `<break time="3.0s" />` for complex visual transitions.
 
         ### LOGIC
-        1. Read Phase 1 `voiceover_text`.
-        2. Append a break tag based on Phase 1 `visual_instruction` complexity.
-        3. Read Phase 2 `voiceover_text`.
+        1. Read Phase 1 `tutor_transcript`.
+        2. Append a break tag based on Phase 1 `manin_syncrhonized_transcript` complexity.
+        3. Read Phase 2 `tutor_transcript`.
         4. Append break tag...
         5. Repeat until done.
 
@@ -282,7 +374,7 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
         ]
 
         **Correct Output:**
-        First, we draw a circle. <break time="2.0s" /> Then, we fill it with blue. <break time="2.0s" />
+        <speak>First, we draw a circle. <break time="2.0s" /> Then, we fill it with blue. <break time="2.0s" />....<speak>
     """
 
     messages=[
@@ -295,10 +387,119 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
 
     print(f'tts_final_transcript : {tts_final_transcript.content}')
 
+    #
+    client = AsyncCartesia(api_key=os.environ["CARTESIA_API_KEY"])
+
+    ws = await client.tts.websocket()
+
+    audio_chunks = []
+    timestamps = []
+
+    async for output in await ws.send(
+        model_id="sonic-3",
+        transcript=tts_final_transcript.content,
+        voice={"mode": "id", "id": "228fca29-3a0a-435c-8728-5cb483251068"},
+        output_format={"container": "raw", "encoding": "pcm_f32le", "sample_rate": 44100},
+        add_timestamps=True
+    ):
+        if output.audio:
+            audio_chunks.append(output.audio)
+
+        # 2. Access Timestamps
+        if output.word_timestamps:
+            # The SDK object has lists: .words, .start, .end
+            batch = output.word_timestamps
+            
+            # Use zip() to pair the word with its specific start/end time
+            if batch.words:
+                for word, start, end in zip(batch.words, batch.start, batch.end):
+                    timestamps.append({
+                        "word": word,
+                        "start": start,
+                        "end": end
+                    })
+                    # print(f"Synced: {word} ({start}s - {end}s)")
+
+    print(f'timestamps : {timestamps}')
+    #
+    # ... inside your async function, after the loop finishes ...
+
+    # 1. Combine all audio chunks into one binary blob
+    full_audio_bytes = b"".join(audio_chunks)
+
+    # 2. Map the timestamps to your JSON Plan
+    # 'phases_json' is the list you got from the Visual Director (LLM Step 2)
+    final_timed_plan = map_timestamps_to_phases(phases_json, timestamps)
+
+    # 3. DEBUG: Print the result to see if it worked
+    print("--- TIMING CALCULATED ---")
+    for p in final_timed_plan:
+        print(f"Phase {p['phase_id']}: {p['audio_duration']} seconds")
+
+    # 4. Save Audio to Disk (Optional but recommended for Manim)
+    # Cartesia sends raw PCM float32. You might need to convert to WAV using ffmpeg or wave
+    with open("temp_voiceover.pcm", "wb") as f:
+        f.write(full_audio_bytes)
+
+    # 5. PASS TO MANIM GENERATOR
+    # Now you call the LLM to write the Python code
+    # The LLM will see: "audio_duration": 4.5 and write self.wait(4.5)
+    manim_code = generate_manim_code(
+        prompt=prompt, 
+        manim_synchronized_transcript=json.dumps(final_timed_plan) # Pass the TIMED json
+    )
+        # # 1. Access audio using Dot Notation
+        # # if output.audio:
+        #     # print(f"Audio chunk: {len(output.audio)} bytes")
+        #     # audio_chunks.append(output.audio)
+
+        # # 2. Access timestamps using Dot Notation
+        # # Note: The attribute is usually 'word_timestamps', not 'word'
+        # if output.word_timestamps:
+
+        #     # attributes inside might be: output.word_timestamps.words, .start, .end
+        #     data = output.word_timestamps
+        #     if data.words:
+        #         for i, word in enumerate(data.words):
+        #             start=math.floor(data.start[i])
+        #             if startTime==0:
+        #                 startTime=0.1
+        #                 line+=" "+word
+        #             elif start>startTime+3:
+        #                 timestamps.append({
+        #                     "line":line,
+        #                     "startTime":startTime
+        #                 })                    
+        #                 startTime=start
+        #                 line=word
+        #             else:
+        #                 line+=" "+word
+
+                    # print(f"Word: '{word}' start: {data.start[i]} end: {data.end[i]}")
+                    # timestamps.append({
+                    #     "word": word,
+                    #     "startTime": data.start[i],
+                    #     "endTime": data.end[i]
+                    # })
     
+    #
+
+
+    # client = Cartesia(api_key=settings.CARTESIA_API_KEY)
+
+    # chunk_iter = client.tts.bytes(
+    #     model_id="sonic-3",
+    #     transcript=tts_final_transcript.content,
+    #     voice={"mode": "id", "id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"},
+    #     output_format={"container": "wav", "sample_rate": 44100, "encoding": "pcm_f32le"}
+    # )
+
+    # with open("TTS_audio.wav", "wb") as f:
+    #     for chunk in chunk_iter:
+    #         f.write(chunk)
 
     try:
-        code = generate_manim_code(prompt)
+        code = generate_manim_code(prompt,manim_synchronized_transcript.content,timestamps)
         conversation_history.append(AIMessage(content=code))
 
         code_path = os.path.join(job_dir, "code.py")
