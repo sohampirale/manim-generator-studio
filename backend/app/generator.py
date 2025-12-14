@@ -203,7 +203,7 @@ def generate_manim_code(prompt: str,manim_synchronized_transcript:str,timestamps
         return f"# Error generating code: {str(e)}"
 
 
-def generate_code_with_history(conversation_history):
+def generate_code_with_history(conversation_history,phases):
     """
     Generate improved Manim code using conversation history and error feedback.
 

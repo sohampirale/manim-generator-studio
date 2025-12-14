@@ -15,6 +15,7 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
+import wave
 import re
 import json
 import math
@@ -40,10 +41,13 @@ class TranscriptPhase(BaseModel):
         )
     )
 
-    animation_type: Optional[AnimationType] = Field(
+    animation_type: Optional[str] = Field(
         default=None,
-        description="Manim animation type used to introduce or modify visuals"
+        description="Manim animation type used to introduce or modify visuals, keep it '' if no animation_type given"
     )
+
+    duration_seconds: Optional[float] = None
+
 
 
 
@@ -380,7 +384,7 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
     #TODO : add with_structured_output for better reliability on llm calls
 
     manim_synchronized_transcript = llm_with_structured_output.invoke(messages)
-
+    phases=manim_synchronized_transcript.phases
     print(f'manim_synchronized_transcript : {manim_synchronized_transcript.phases}')
 
     tts_final_transcript_generator_system_prompt = """
@@ -470,7 +474,7 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
 
     tts_final_transcript = llm_with_tts_output.invoke(messages)
 
-    print(f'tts_final_transcript phasewise : {tts_final_transcript.phases}')
+    print(f'tts_final_transcript phasewise : {tts_final_transcript.phasewise_transcripts}')
 
     cartesia_client = Cartesia(api_key=os.getenv("CARTESIA_API_KEY"))
     cnt=0
@@ -488,132 +492,40 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
                 "encoding": "pcm_s16le"
                 }
         )
+        filename = f"audio_{cnt}.wav"
 
-        with open(f"audio_{cnt}.wav", "wb") as f:
+        with open(filename, "wb") as f:
             for chunk in chunks:
                 f.write(chunk)
 
+        with wave.open(filename, 'rb') as audio_file:
+            frames = audio_file.getnframes()
+            rate = audio_file.getframerate()  # Should be 44100
+            duration_seconds = frames / float(rate)
+            phases[cnt].duration_seconds = duration_seconds
 
+        cnt+=1
+
+    print(f'phases now : {phases}')
     print('STOPPING HERE')
     return
     #
-    client = AsyncCartesia(api_key=os.environ["CARTESIA_API_KEY"])
-
-    ws = await client.tts.websocket()
-
-    audio_chunks = []
-    timestamps = []
-
-    async for output in await ws.send(
-        model_id="sonic-3",
-        transcript=tts_final_transcript.content,
-        voice={"mode": "id", "id": "228fca29-3a0a-435c-8728-5cb483251068"},
-        output_format={"container": "raw", "encoding": "pcm_f32le", "sample_rate": 44100},
-        add_timestamps=True
-    ):
-        if output.audio:
-            audio_chunks.append(output.audio)
-
-        # 2. Access Timestamps
-        if output.word_timestamps:
-            # The SDK object has lists: .words, .start, .end
-            batch = output.word_timestamps
-            
-            # Use zip() to pair the word with its specific start/end time
-            if batch.words:
-                for word, start, end in zip(batch.words, batch.start, batch.end):
-                    timestamps.append({
-                        "word": word,
-                        "start": start,
-                        "end": end
-                    })
-                    # print(f"Synced: {word} ({start}s - {end}s)")
-
-    print(f'timestamps : {timestamps}')
-    #
-    # ... inside your async function, after the loop finishes ...
-
-    # 1. Combine all audio chunks into one binary blob
-    full_audio_bytes = b"".join(audio_chunks)
-
-    # 2. Map the timestamps to your JSON Plan
-    # 'phases_json' is the list you got from the Visual Director (LLM Step 2)
-    final_timed_plan = map_timestamps_to_phases(phases_json, timestamps)
-
-    # 3. DEBUG: Print the result to see if it worked
-    print("--- TIMING CALCULATED ---")
-    for p in final_timed_plan:
-        print(f"Phase {p['phase_id']}: {p['audio_duration']} seconds")
-
-    # 4. Save Audio to Disk (Optional but recommended for Manim)
-    # Cartesia sends raw PCM float32. You might need to convert to WAV using ffmpeg or wave
-    with open("temp_voiceover.pcm", "wb") as f:
-        f.write(full_audio_bytes)
-
+   
     # 5. PASS TO MANIM GENERATOR
     # Now you call the LLM to write the Python code
     # The LLM will see: "audio_duration": 4.5 and write self.wait(4.5)
-    manim_code = generate_manim_code(
-        prompt=prompt, 
-        manim_synchronized_transcript=json.dumps(final_timed_plan) # Pass the TIMED json
-    )
-        # # 1. Access audio using Dot Notation
-        # # if output.audio:
-        #     # print(f"Audio chunk: {len(output.audio)} bytes")
-        #     # audio_chunks.append(output.audio)
-
-        # # 2. Access timestamps using Dot Notation
-        # # Note: The attribute is usually 'word_timestamps', not 'word'
-        # if output.word_timestamps:
-
-        #     # attributes inside might be: output.word_timestamps.words, .start, .end
-        #     data = output.word_timestamps
-        #     if data.words:
-        #         for i, word in enumerate(data.words):
-        #             start=math.floor(data.start[i])
-        #             if startTime==0:
-        #                 startTime=0.1
-        #                 line+=" "+word
-        #             elif start>startTime+3:
-        #                 timestamps.append({
-        #                     "line":line,
-        #                     "startTime":startTime
-        #                 })                    
-        #                 startTime=start
-        #                 line=word
-        #             else:
-        #                 line+=" "+word
-
-                    # print(f"Word: '{word}' start: {data.start[i]} end: {data.end[i]}")
-                    # timestamps.append({
-                    #     "word": word,
-                    #     "startTime": data.start[i],
-                    #     "endTime": data.end[i]
-                    # })
-    
-    #
-
-
-    # client = Cartesia(api_key=settings.CARTESIA_API_KEY)
-
-    # chunk_iter = client.tts.bytes(
-    #     model_id="sonic-3",
-    #     transcript=tts_final_transcript.content,
-    #     voice={"mode": "id", "id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"},
-    #     output_format={"container": "wav", "sample_rate": 44100, "encoding": "pcm_f32le"}
-    # )
-
-    # with open("TTS_audio.wav", "wb") as f:
-    #     for chunk in chunk_iter:
-    #         f.write(chunk)
 
     try:
-        code = generate_manim_code(prompt,manim_synchronized_transcript.content,timestamps)
-        conversation_history.append(AIMessage(content=code))
+        manim_code = generate_manim_code(
+            prompt=prompt, 
+            manim_synchronized_transcript=json.dumps(phases) # Pass the TIMED json
+        )
+        # code = generate_manim_code(prompt,manim_synchronized_transcript.content)
+        conversation_history.append(AIMessage(content=manim_code))
 
         code_path = os.path.join(job_dir, "code.py")
         with open(code_path, "w") as f:
-            f.write(code)
+            f.write(manim_code)
 
         logger.info(f"Initial code generated for job {job_id}")
     except Exception as e:
@@ -630,7 +542,7 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
 
     success = False
     result = ""
-    final_code = code
+    final_code = manim_code
     iteration = 0
 
     while not success and iteration < MAX_ITERATIONS:
@@ -663,18 +575,18 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
             else:
                 if iteration < MAX_ITERATIONS:
                     error_prompt = f"""
-The Manim code failed to render with the following error:
-```
-{result}
-```
-Please fix the code to address this error. Only respond with the complete, corrected code - no explanations.
-"""
+                    The Manim code failed to render with the following error:
+                    ```
+                    {result}
+                    ```
+                    Please fix the code to address this error. Only respond with the complete, corrected code - no explanations.
+                    """
                     conversation_history.append(HumanMessage(content=error_prompt))
 
                     try:
                         from .generator import generate_code_with_history
 
-                        final_code = generate_code_with_history(conversation_history)
+                        final_code = generate_code_with_history(conversation_history,phases)
                         conversation_history.append(AIMessage(content=final_code))
 
                         with open(
