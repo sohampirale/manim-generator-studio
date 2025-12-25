@@ -12,6 +12,7 @@ from langchain_core.prompts import (
 )
 from langchain_pinecone import PineconeVectorStore
 from strands import Agent,tool
+from strands.models.litellm import LiteLLMModel
 
 model = LiteLLMModel(
     client_args={
@@ -622,6 +623,11 @@ def generate_manim_code(prompt: str,phases:list[any]) -> str:
             - All timings MUST sum exactly to duration_seconds per phase
 
             Generate the scene based on the phases provided.
+
+            VERY VERY IMP : 
+            i. Only output final python code directly not even ```python```
+            ii.Cross check at the end whether generated code has any overlapping part
+            OVERLAPPING parts damage the user experience and they are FORBIDDEN!
             """
 
         agent = Agent(
@@ -630,9 +636,12 @@ def generate_manim_code(prompt: str,phases:list[any]) -> str:
             system_prompt=manim_code_generator_system_prompt
         )
 
-        manim_code = agent(f'Prefetch manim documentations : {context_text} , phases :{phases}')
+        response = agent(f'Prefetch manim documentations : {context_text} , phases :{phases}')
+        print(f'\nresponse from code gen agent aws strands\n{response}\n')
 
-        print(f'maim code genrated by aws starnds agent\n{manim_code}')
+        manim_code = response.message["content"][0]["text"]  # {"role": "assistant", "content": [ ... ]}
+
+        print(f'manim_code : {manim_code}')
         return manim_code
     
         messages=[
@@ -655,7 +664,7 @@ def generate_manim_code(prompt: str,phases:list[any]) -> str:
         return f"# Error generating code: {str(e)}"
 
 
-def generate_code_with_history(conversation_history,phases:list[any],recent_manim_code:str):
+def generate_code_with_history(error_history,phases:list[any],recent_manim_code:str):
     """
     Generate improved Manim code using conversation history and error feedback.
 
@@ -666,7 +675,7 @@ def generate_code_with_history(conversation_history,phases:list[any],recent_mani
         str: Generated Python code
     """
     try:
-        original_prompt = conversation_history[0].content
+        # original_prompt = error_history[0].content
 
         doc_search = PineconeVectorStore(
             index_name=settings.PINECONE_INDEX_NAME,
@@ -1259,6 +1268,12 @@ def generate_code_with_history(conversation_history,phases:list[any],recent_mani
             - Calculate all timings from duration_seconds
 
             Analyze the error and generate corrected code now.
+
+            VERY VERY IMP :
+            i. Only output final python code directly not even ```python```
+            ii.Cross check at the end whether generated code has any overlapping part
+            OVERLAPPING parts damage the user experience and they are FORBIDDEN!
+            
             """
 
         agent = Agent(
@@ -1266,8 +1281,10 @@ def generate_code_with_history(conversation_history,phases:list[any],recent_mani
             tools=[rag],
             system_prompt=rewrite_manim_code_system_prompt
         )        
-
-        rewritren_manim_code = agent(f'prefetch manim documentations :{context_text} phases : {phases}, recent error: {conversation_history[-1]}, recent manim code :{recent_manim_code}')
+        
+        response = agent(f'phases : {phases},  error history: {error_history[-1]}, recent manim code :{recent_manim_code}')
+        print(f'\noutput from rewrite manim code agent\n{response}\n')
+        rewritren_manim_code=response.message["content"][0]["text"]
 
         print(f'rewritten manim code by aws strands agent\n{rewritren_manim_code}')
         return recent_manim_code
@@ -1277,7 +1294,7 @@ def generate_code_with_history(conversation_history,phases:list[any],recent_mani
             # HumanMessage(content=f'### MANIM DOCUMENTATION CONTEXT (for syntax reference): : {context_text}'),
             HumanMessage(content=f"### PHASES: : {phases}"),
             HumanMessage(content=f"### Manim documentation context: : {context_text}"),
-            HumanMessage(content=f"### Conversation history : {conversation_history},\Rewrite the code now :")
+            HumanMessage(content=f"### Conversation history : {conversation_history},Rewrite the code now :")
         ]
 
         response = cohere.invoke(messages)

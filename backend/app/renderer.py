@@ -45,7 +45,7 @@ model = LiteLLMModel(
     # model_id="openrouter/google/gemini-2.5-pro",
     params={
         'temperature':0.5,
-        "max_tokens":1000
+        "max_tokens":2000
     },
 )
 
@@ -512,7 +512,8 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
     local_audio_files_name="temp"
     final_audio_filename=local_audio_files_name+'_final.wav'
     combined = AudioSegment.silent(duration=0)  # start empty
-
+    errors=[]
+    #temp commented
     for transcript in phasewise_transcripts:
         #########################
 
@@ -559,6 +560,7 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
             prompt=prompt, 
             phases=phases
         )
+        print(f'-------------------Manim code Try 1 -------\n{manim_code}\n')
         # code = generate_manim_code(prompt,manim_synchronized_transcript.content)
         conversation_history.append(AIMessage(content=manim_code))
 
@@ -620,12 +622,13 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
                     ```
                     Please fix the code to address this error. Only respond with the complete, corrected code - no explanations.
                     """
+                    errors.append(error_prompt)
                     conversation_history.append(HumanMessage(content=error_prompt))
 
                     try:
                         from .generator import generate_code_with_history
 
-                        final_code = generate_code_with_history(conversation_history,phases,final_code)
+                        final_code = generate_code_with_history(erros,phases,final_code)
                         conversation_history.append(AIMessage(content=final_code))
 
                         with open(
