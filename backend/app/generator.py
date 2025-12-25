@@ -29,6 +29,18 @@ model = LiteLLMModel(
     },
 )
 
+model = LiteLLMModel(
+    client_args={
+        "api_key": settings.COHERE_API_KEY,  # Use your Cohere API key here
+    },
+    model_id="cohere_chat/command-a-03-2025",  # Direct Cohere model ID for LiteLLM
+    params={
+        'temperature': 0.5,
+        "max_tokens": 1000
+    },
+)
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -636,6 +648,13 @@ def generate_manim_code(prompt: str,phases:list[any]) -> str:
             system_prompt=manim_code_generator_system_prompt
         )
 
+
+        agent = Agent(
+            model=model,
+            tools=[], #temporary testing with cohere ai (cohere agent dont support tools in aws strands)
+            system_prompt=manim_code_generator_system_prompt
+        )
+
         response = agent(f'Prefetch manim documentations : {context_text} , phases :{phases}')
         print(f'\nresponse from code gen agent aws strands\n{response}\n')
 
@@ -664,7 +683,7 @@ def generate_manim_code(prompt: str,phases:list[any]) -> str:
         return f"# Error generating code: {str(e)}"
 
 
-def generate_code_with_history(error_history,phases:list[any],recent_manim_code:str):
+def generate_code_with_history(error_prompt,phases:list[any],recent_manim_code:str):
     """
     Generate improved Manim code using conversation history and error feedback.
 
@@ -684,7 +703,7 @@ def generate_code_with_history(error_history,phases:list[any],recent_manim_code:
         )
 
         retriever = doc_search.as_retriever()
-        docs = retriever.invoke(original_prompt)
+        docs = retriever.invoke(error_prompt)
 
         doc_contents = [doc.page_content for doc in docs[:5]]
         context_text = "\n\n---\n\n".join(doc_contents)
@@ -1280,9 +1299,16 @@ def generate_code_with_history(error_history,phases:list[any],recent_manim_code:
             model=model,
             tools=[rag],
             system_prompt=rewrite_manim_code_system_prompt
-        )        
+        )    
+
+        #temporary testing with cohere ai agent with aws strands
+        agent = Agent(
+            model=model,
+            tools=[], #temporary testing with cohere ai (cohere agent dont support tools in aws strands)
+            system_prompt=rewrite_manim_code_system_prompt
+        )    
         
-        response = agent(f'phases : {phases},  error history: {error_history[-1]}, recent manim code :{recent_manim_code}')
+        response = agent(f'phases : {phases},  recent error : {error_prompt}, recent manim code :{recent_manim_code}')
         print(f'\noutput from rewrite manim code agent\n{response}\n')
         rewritren_manim_code=response.message["content"][0]["text"]
 
@@ -1308,13 +1334,15 @@ def generate_code_with_history(error_history,phases:list[any],recent_manim_code:
     except Exception as e:
         logger.error(f"Error generating improved code: {str(e)}")
 
-        last_code = None
-        for msg in reversed(conversation_history):
-            if isinstance(msg, AIMessage):
-                last_code = msg.content
-                break
 
-        if last_code:
-            return last_code
-        else:
-            return f"# Error generating improved code: {str(e)}"
+        return recent_manim_code
+        # last_code = None
+        # for msg in reversed(conversation_history):
+        #     if isinstance(msg, AIMessage):
+        #         last_code = msg.content
+        #         break
+
+        # if last_code:
+        #     return last_code
+        # else:
+        #     return f"# Error generating improved code: {str(e)}"

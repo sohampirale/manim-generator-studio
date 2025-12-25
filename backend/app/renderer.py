@@ -513,46 +513,47 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
     final_audio_filename=local_audio_files_name+'_final.wav'
     combined = AudioSegment.silent(duration=0)  # start empty
     errors=[]
-    #temp commented
-    for transcript in phasewise_transcripts:
-        #########################
 
-        chunks = cartesia_client.tts.bytes(
-            model_id="sonic-3",
-            transcript=transcript,
-            voice={"mode": "id", "id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"},
-            language="en",
-            output_format={
-                "container": "wav",
-                "sample_rate": 44100,
-                "encoding": "pcm_s16le"
-                }
-        )
+    #audio generation
+    # for transcript in phasewise_transcripts:
+    #     #########################
 
-        filename = f"{local_audio_files_name}_{cnt}.wav"
+    #     chunks = cartesia_client.tts.bytes(
+    #         model_id="sonic-3",
+    #         transcript=transcript,
+    #         voice={"mode": "id", "id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"},
+    #         language="en",
+    #         output_format={
+    #             "container": "wav",
+    #             "sample_rate": 44100,
+    #             "encoding": "pcm_s16le"
+    #             }
+    #     )
 
-        with open(filename, "wb") as f:
-            for chunk in chunks:
-                f.write(chunk)
+    #     filename = f"{local_audio_files_name}_{cnt}.wav"
 
-        sample_rate=44100
-        audio_seg_tts = AudioSegment.from_file(filename)
-        duration_seconds = len(audio_seg_tts) / 1000.0  # milliseconds to seconds
-        floored_time = math.ceil(duration_seconds)
-        phases[cnt].duration_seconds=floored_time
-        silence_time_sec = floored_time-duration_seconds
+    #     with open(filename, "wb") as f:
+    #         for chunk in chunks:
+    #             f.write(chunk)
 
-        print(f"{filename}: {duration_seconds:.2f} seconds")  # Real duration![web:29]
+    #     sample_rate=44100
+    #     audio_seg_tts = AudioSegment.from_file(filename)
+    #     duration_seconds = len(audio_seg_tts) / 1000.0  # milliseconds to seconds
+    #     floored_time = math.ceil(duration_seconds)
+    #     phases[cnt].duration_seconds=floored_time
+    #     silence_time_sec = floored_time-duration_seconds
 
-        silence_time_ms = int(silence_time_sec * 1000)
-        silence_seg = AudioSegment.silent(duration=silence_time_ms, frame_rate=sample_rate)
-        combined += audio_seg_tts + silence_seg
-        print(f"{filename}: {duration_seconds:.2f} seconds")
-        cnt += 1
+    #     print(f"{filename}: {duration_seconds:.2f} seconds")  # Real duration![web:29]
 
-    combined.export(final_audio_filename, format="wav")
-    print("Final audio saved as:", final_audio_filename)
-    print(f'phases now : {phases}')
+    #     silence_time_ms = int(silence_time_sec * 1000)
+    #     silence_seg = AudioSegment.silent(duration=silence_time_ms, frame_rate=sample_rate)
+    #     combined += audio_seg_tts + silence_seg
+    #     print(f"{filename}: {duration_seconds:.2f} seconds")
+    #     cnt += 1
+
+    # combined.export(final_audio_filename, format="wav")
+    # print("Final audio saved as:", final_audio_filename)
+    # print(f'phases now : {phases}')
 
 
     try:
@@ -628,7 +629,7 @@ async def process_rendering_job(job_id: str, prompt: str, quality: str):
                     try:
                         from .generator import generate_code_with_history
 
-                        final_code = generate_code_with_history(erros,phases,final_code)
+                        final_code = generate_code_with_history(error_prompt,phases,final_code)
                         conversation_history.append(AIMessage(content=final_code))
 
                         with open(
